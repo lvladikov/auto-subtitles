@@ -1,0 +1,4 @@
+faster-whisper>=1.0.0
+torch
+transformers>=4.30.0
+sentencepiece
