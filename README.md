@@ -386,7 +386,7 @@ python auto_subtitles.py chinese-video.mp4 --translate-via-english-to fr
 
 ### Whisper Models (Transcription)
 
-Choose the right transcription model for your needs:
+Choose the right transcription model for your needs, for `--model` or `-m` option use one of those:
 
 | Model | Download | VRAM | Speed | Best For |
 |-------|----------|------|-------|----------|
@@ -400,7 +400,7 @@ Choose the right transcription model for your needs:
 
 ### NLLB Models (Translation)
 
-For `--translate-to` and `--translate-via-english-to`:
+For `--translate-to` and `--translate-via-english-to` options use one of those:
 
 | Model | Option | Download | Speed | Best For |
 |-------|--------|----------|-------|----------|
