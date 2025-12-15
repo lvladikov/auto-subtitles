@@ -320,8 +320,8 @@ def get_potential_output_paths(input_path: Path, args) -> list:
         target_langs = []
         if args.translate_to:
             target_langs = args.translate_to.split(",")
-        elif args.translate_via_english_to:
-            target_langs = args.translate_via_english_to.split(",")
+        elif args.translate_via_english:
+            target_langs = args.translate_via_english.split(",")
 
         if len(target_langs) > 1:
              paths = []
@@ -337,8 +337,8 @@ def get_potential_output_paths(input_path: Path, args) -> list:
     target_langs = []
     if args.translate_to:
         target_langs = args.translate_to.split(",")
-    elif args.translate_via_english_to:
-        target_langs = args.translate_via_english_to.split(",")
+    elif args.translate_via_english:
+        target_langs = args.translate_via_english.split(",")
         
     if target_langs:
         for lang in target_langs:
@@ -838,6 +838,15 @@ NLLB translation models (--translation-model):
 
     args = parser.parse_args()
     
+    # Infer format from output filename if --output is specified
+    if args.output:
+        output_ext = Path(args.output).suffix.lstrip('.').lower()
+        supported_sub_formats = ["srt", "vtt", "ass", "sub", "txt", "json"]
+        # Only override if default 'srt' is set and extension differs
+        if args.format == 'srt' and output_ext in supported_sub_formats and output_ext != 'srt':
+            print(f"Info: Inferring format '{output_ext}' from output filename.")
+            args.format = output_ext
+    
     # Handle --list-all-supported-languages
     if args.list_all_supported_languages:
         print_supported_languages()
@@ -887,7 +896,7 @@ NLLB translation models (--translation-model):
         # If translating, the "base" file is typically the straight transcription of the input
         # regardless of where the output is going (unless we specifically want to reuse a custom file?)
         # For simplicity, base reuse looks for [input_filename].srt next to input
-        is_translation_task = bool(args.translate_to or args.translate_via_english_to)
+        is_translation_task = bool(args.translate_to or args.translate_via_english)
 
         if is_translation_task:
              base_output_path = input_path.with_suffix(".srt")
@@ -900,7 +909,7 @@ NLLB translation models (--translation-model):
         reuse_segments = None
         
         # If we are strictly translating (using --translate-to etc), we might want to reuse the base file
-        is_translation_task = bool(args.translate_to or args.translate_via_english_to)
+        is_translation_task = bool(args.translate_to or args.translate_via_english)
         
         if is_translation_task and base_output_path.exists() and base_output_path.suffix == '.srt':
             print(f"\n⚠️  Base transcription found: {base_output_path.name}")
