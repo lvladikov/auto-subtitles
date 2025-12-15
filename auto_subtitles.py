@@ -1471,7 +1471,7 @@ def run_whisper_benchmark(input_path, audio_path, args, system_info, cpu_info, p
                 vad_threshold=args.vad_threshold,
                 condition_on_previous_text=args.condition_on_previous_text,
                 no_speech_threshold=args.no_speech_threshold,
-                logprob_threshold=args.logprob_threshold,
+                log_prob_threshold=args.logprob_threshold,
                 temperature=args.temperature,
                 vad_min_speech_duration_ms=args.vad_min_speech_duration,
                 vad_speech_pad_ms=args.vad_speech_pad
