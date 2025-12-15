@@ -250,6 +250,55 @@ def extract_audio(video_path: str, audio_path: str) -> bool:
         return False
 
 
+def get_potential_output_paths(input_path: Path, args) -> list:
+    """
+    Determine the list of output files that will be generated based on arguments.
+    """
+    paths = []
+    
+    # Determine extension
+    format_ext = f".{args.format}"
+    
+    # Case 1: Explicit output path (single file)
+    if args.output:
+        return [Path(args.output)]
+    
+    # Case 2: Multi-language translation (--translate-to or --translate-via-english-to)
+    target_langs = []
+    if args.translate_to:
+        target_langs = args.translate_to.split(",")
+    elif args.translate_via_english_to:
+        target_langs = args.translate_via_english_to.split(",")
+        
+    if target_langs:
+        for lang in target_langs:
+            lang = lang.strip()
+            paths.append(input_path.with_suffix(f".{lang}{format_ext}"))
+        
+        # When translating to specific targets, we usually also generate the base transcription
+        # unless it's a direct translate task (which this script typically does as separate steps).
+        # The main logic always runs transcribe_audio first and saves it.
+        # So we should ALSO expect the base file.
+        paths.append(input_path.with_suffix(format_ext))
+        return paths
+        
+    # Case 3: Single translation (--translate defaults to English)
+    if args.translate:
+        # Default suffix for --translate is .en
+        paths.append(input_path.with_suffix(f".en{format_ext}"))
+        # Does --translate ALSO save the original language transcription?
+        # If task="translate", Whisper translates directly. 
+        # If so, it produces ONLY the translated text (English).
+        # So we do NOT add the base path here.
+        return paths
+
+    # Case 4: Default Transcription
+    # Logic in main: output_path = input_path.with_suffix(format_ext)
+    paths.append(input_path.with_suffix(format_ext))
+    
+    return paths
+
+
 def detect_fps(input_path: str) -> float:
     """Detect frames per second using ffprobe."""
     command = [
@@ -760,6 +809,27 @@ NLLB translation models (--translation-model):
 
     # Check for existing subtitles
     if not args.benchmark and not args.benchmark_transcribe_only:
+        print(f"Input file: {input_path}")
+    
+        # Check for EXISTING EXTERNAL subtitle files first
+        potential_outputs = get_potential_output_paths(input_path, args)
+        existing_files = [p for p in potential_outputs if p.exists()]
+        
+        if existing_files:
+            print(f"\n⚠️  External subtitle file(s) found:")
+            for p in existing_files:
+                print(f"   - {p.name}")
+            
+            print(f"\n   DANGER: Generating new subtitles will OVERWRITE these files.")
+            response = input(f"   Do you want to use the existing file(s) instead? (y/n): ").lower().strip()
+            
+            if response == 'y':
+                print(f"✅ Using existing files. Exiting.")
+                sys.exit(0)
+            else:
+                print(f"⚠️  Will overwrite existing files...")
+
+        # Check for INTERNAL subtitle streams
         if check_existing_subtitles(str(input_path)):
             print(f"\n⚠️  Subtitle stream detected in the input file!")
             response = input("   Do you want to extract existing subtitles instead of generating new ones? (y/n): ").strip().lower()

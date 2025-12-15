@@ -114,16 +114,18 @@ Run `--list-all-supported-languages` to see all 68+ supported language codes.
 ## Prerequisites
 
 1. **Python 3.12** (recommended)
-   - macOS: `brew install python@3.12`
-   - Ubuntu: `sudo apt install python3.12 python3.12-venv`
-   - Windows: [Download Python 3.12](https://www.python.org/downloads/release/python-3120/)
-   
-   > **Note:** As of December 2025, [faster-whisper](#dependencies) is not yet compatible with Python 3.13+. Use Python 3.12 for guaranteed compatibility.
-   
-2. **FFmpeg** - Required for audio extraction and framerate detection (includes `ffprobe`)
-   - macOS: `brew install ffmpeg`
-   - Ubuntu: `sudo apt install ffmpeg`
-   - Windows: [Download FFmpeg](https://ffmpeg.org/download.html)
+1.  **Python 3.10+** (tested on 3.10 and 3.11)
+2.  **FFmpeg** must be installed and in your system PATH.
+    -   **macOS**: `brew install ffmpeg`
+    -   **Ubuntu/Debian**: `sudo apt install ffmpeg`
+    -   **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add `bin` folder to Path.
+
+### Python Dependencies (installed via requirements.txt)
+
+-   **faster-whisper**: Optimized implementation of Whisper for fast inference
+-   **torch**: PyTorch for tensor computations and hardware acceleration
+-   **transformers**: Hugging Face library for NLLB translation models
+-   **sentencepiece**: Tokenizer required for NLLB translation models
 
 ## Installation
 
