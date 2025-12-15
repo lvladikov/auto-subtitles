@@ -213,6 +213,34 @@ def check_ffmpeg():
         return False
 
 
+def post_process_transcript(text: str) -> str:
+    """
+    Apply safe post-processing to fix common casing issues.
+    """
+    if not text:
+        return text
+        
+    import re
+        
+    # Capitalize standalone "i" (e.g. " i ", " i'", "i'm")
+    # RegEx explanation:
+    # \b = word boundary
+    # i = the letter i
+    # \b = word boundary (so we don't match 'is', 'in')
+    # We also want to match i'll, i'm, i've ---> I'll, I'm, I've
+    # So we look for " i" followed by boundary OR apostrophe
+    
+    # Pattern: Space/Start + i + Space/End/Punctuation/Apostrophe
+    
+    # Fix " i " -> " I "
+    text = re.sub(r'\b(i)\b', 'I', text)
+    
+    # Fix " i'" -> " I'" (like i'm -> I'm)
+    text = re.sub(r'\b(i)(\'[a-z]+)', lambda m: 'I' + m.group(2), text)
+    
+    return text
+
+
 def extract_audio(video_path: str, audio_path: str) -> bool:
     """
     Extract audio from video file using FFmpeg.
@@ -528,15 +556,18 @@ def transcribe_audio(audio_path: str, model_size: str = "medium",
     transcript = []
     audio_duration = 0
     for segment in segments_generator:
+        # Apply safe post-processing to fix casing (i -> I, sentence start)
+        cleaned_text = post_process_transcript(segment.text.strip())
+        
         transcript.append({
             "start": segment.start,
             "end": segment.end,
-            "text": segment.text.strip()
+            "text": cleaned_text
         })
         audio_duration = max(audio_duration, segment.end)
         # Print progress
         if verbose:
-            print(f"  [{format_timestamp(segment.start)} --> {format_timestamp(segment.end)}] {segment.text.strip()}")
+            print(f"  [{format_timestamp(segment.start)} --> {format_timestamp(segment.end)}] {cleaned_text}")
     
     # End timing
     transcription_time = time.time() - start_time
