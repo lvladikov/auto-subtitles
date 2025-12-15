@@ -209,8 +209,12 @@ python auto_subtitles.py sample-video.mp4 --device cpu
 python auto_subtitles.py foreign-video.mkv --translate
 python auto_subtitles.py japanese-anime.mkv --translate --model large-v3
 
-# Anti-Hallucination Tuning (Critical for noisy audio recordings)
-# Use these flags to stop the model from transcribing noise or getting stuck in loops.
+```
+
+### Anti-Hallucination Tuning (Critical for noisy audio recordings)
+Use these flags to stop the model from transcribing noise or getting stuck in loops.
+
+```bash
 # VAD: Voice Activity Detection
 # - vad-min-silence: 500ms (0.5s) to ignore short noises
 # - vad-threshold: 0.7 to strictly require speech
