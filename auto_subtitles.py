@@ -469,10 +469,17 @@ def format_timestamp(seconds: float) -> str:
     
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
 
-
 def transcribe_audio(audio_path: str, model_size: str = "medium", 
                      device: str = "auto", language: str = None,
-                     task: str = "transcribe", verbose: bool = True) -> tuple:
+                     task: str = "transcribe", verbose: bool = True,
+                     vad_min_silence_duration_ms: int = 2000,
+                     vad_threshold: float = 0.5,
+                     condition_on_previous_text: bool = True,
+                     no_speech_threshold: float = 0.6,
+                     log_prob_threshold: float = -1.0,
+                     temperature: float = 0.0,
+                     vad_min_speech_duration_ms: int = 250,
+                     vad_speech_pad_ms: int = 400) -> tuple:
     """
     Transcribe or translate audio using faster-whisper.
     
@@ -483,6 +490,14 @@ def transcribe_audio(audio_path: str, model_size: str = "medium",
         language: Language code (e.g., 'en', 'es') or None for auto-detection
         task: "transcribe" for same-language transcription, "translate" to translate to English
         verbose: If True, print segments as they are generated
+        vad_min_silence_duration_ms: Minimum duration of silence (ms) for VAD
+        vad_threshold: Speech probability threshold (0.0-1.0) for VAD
+        condition_on_previous_text: If True, use previous segment as context (default: True)
+        no_speech_threshold: Threshold to skip silent segments (default: 0.6)
+        log_prob_threshold: Threshold to skip low-confidence segments (default: -1.0)
+        temperature: Sampling temperature (default: 0.0)
+        vad_min_speech_duration_ms: Minimum speech duration (ms) for VAD (default: 250)
+        vad_speech_pad_ms: Speech padding (ms) for VAD (default: 400)
     
     Returns:
         Tuple of (transcript segments list, audio duration in seconds, transcription time in seconds)
@@ -543,6 +558,16 @@ def transcribe_audio(audio_path: str, model_size: str = "medium",
         beam_size=5,
         word_timestamps=True,
         vad_filter=True,  # Filter out non-speech segments
+        vad_parameters=dict(
+            min_silence_duration_ms=vad_min_silence_duration_ms,
+            threshold=vad_threshold,
+            min_speech_duration_ms=vad_min_speech_duration_ms,
+            speech_pad_ms=vad_speech_pad_ms
+        ),
+        condition_on_previous_text=condition_on_previous_text,
+        no_speech_threshold=no_speech_threshold,
+        log_prob_threshold=log_prob_threshold,
+        temperature=temperature
     )
     
     if verbose:
@@ -866,8 +891,145 @@ NLLB translation models (--translation-model):
         action="store_true",
         help="Suppress console output of generated subtitles (default: False)"
     )
+    parser.add_argument(
+        "--vad-min-silence",
+        type=int,
+        default=None, # Changed from 2000
+        help="VAD: Minimum duration of silence (ms) to split segments (default: 2000). Increase to ignore short noises."
+    )
+
+    parser.add_argument(
+        "--vad-threshold",
+        type=float,
+        default=None, # Changed from 0.5
+        help="VAD: Speech probability threshold (0.0-1.0) (default: 0.5). Increase to require clearer speech."
+    )
+    
+    parser.add_argument(
+        "--vad-min-speech-duration",
+        type=int,
+        default=None, # Changed from 250
+        help="VAD: Minimum duration of speech (ms) to keep (default: 250). Increase to ignore short noise bursts."
+    )
+
+    parser.add_argument(
+        "--vad-speech-pad",
+        type=int,
+        default=None, # Changed from 400
+        help="VAD: Speech padding (ms) to add to each side (default: 400). Reduce (e.g. 50) to stop merging noise."
+    )
+    
+    parser.add_argument(
+        "--vad-set-1",
+        action="store_true",
+        help="VAD Preset 1: Noisy Audio (Strict). Use for files with background noise/camrips."
+    )
+
+    parser.add_argument(
+        "--vad-set-2",
+        action="store_true",
+        help="VAD Preset 2: Sensitive (Quiet/Faint Speech). Use for clean audio with quiet dialogue."
+    )
+
+    parser.add_argument(
+        "--no-condition-on-previous-text",
+        action="store_false",
+        dest="condition_on_previous_text",
+        default=None,  # Changed from True to None to detect intent
+        help="Disable conditioning on previous text. Prevents hallucination loops but may fit less coherent context."
+    )
+    
+    parser.add_argument(
+        "--no-speech-threshold",
+        type=float,
+        default=None, # Changed from 0.6
+        help="Threshold for skipping silent segments (default: 0.6). Increase to filter out more silence."
+    )
+    
+    parser.add_argument(
+        "--logprob-threshold",
+        type=float,
+        default=None, # Changed from -1.0
+        help="Threshold for skipping low-confidence segments (default: -1.0). Increase (e.g. -0.5) to stricter."
+    )
+
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None, # Changed from 0.0
+        help="Sampling temperature (default: 0.0). Higher values = more creative/less deterministic."
+    )
 
     args = parser.parse_args()
+    
+    # --- VAD Presets Logic ---
+    # Default values map
+    vad_defaults = {
+        "vad_min_silence": 2000,
+        "vad_threshold": 0.5,
+        "condition_on_previous_text": True,
+        "no_speech_threshold": 0.6,
+        "logprob_threshold": -1.0,
+        "temperature": 0.0,
+        "vad_min_speech_duration": 250,
+        "vad_speech_pad": 400
+    }
+    
+    # Preset 1: Noisy (Strict)
+    preset_1 = {
+        "vad_min_silence": 500,
+        "vad_threshold": 0.7,
+        "condition_on_previous_text": False,
+        "no_speech_threshold": 0.4,
+        "logprob_threshold": -0.8,
+        "vad_min_speech_duration": 500,
+        "vad_speech_pad": 100
+    }
+    
+    # Preset 2: Sensitive (Quiet/Faint Speech)
+    preset_2 = {
+        "vad_min_silence": 1000,
+        "vad_threshold": 0.35, # More sensitive
+        "condition_on_previous_text": True,
+        "no_speech_threshold": 0.6,
+        "logprob_threshold": -1.0,
+        "vad_min_speech_duration": 200,
+        "vad_speech_pad": 500 # More padding
+    }
+    
+    target_defaults = vad_defaults.copy()
+    
+    if args.vad_set_1:
+        print("Using VAD Preset 1: Noisy (Strict)")
+        target_defaults.update(preset_1)
+    elif args.vad_set_2:
+        print("Using VAD Preset 2: Sensitive (Quiet Speech)")
+        target_defaults.update(preset_2)
+        
+    # Apply defaults if user didn't specify (arg is None)
+    # Special handling for condition_on_previous_text:
+    # If default=None, it will be None if user didn't flag it.
+    # If user flagged --no-condition..., it will be False.
+    # We want valid value: either user's override (False) or target default (True/False).
+    
+    if args.condition_on_previous_text is None:
+        args.condition_on_previous_text = target_defaults["condition_on_previous_text"]
+    # If args.condition is False, user seemingly set it... OR they didn't set it and default was False? 
+    # With store_false and default=None:
+    #   User passed flag -> False.
+    #   User didn't pass flag -> None.
+    # So if it is False, User definitely passed --no-condition... (Intentional)
+    # If it is None, User didn't pass it. So take from Preset/Default.
+    
+    if args.vad_min_silence is None: args.vad_min_silence = target_defaults["vad_min_silence"]
+    if args.vad_threshold is None: args.vad_threshold = target_defaults["vad_threshold"]
+    if args.no_speech_threshold is None: args.no_speech_threshold = target_defaults["no_speech_threshold"]
+    if args.logprob_threshold is None: args.logprob_threshold = target_defaults["logprob_threshold"]
+    if args.temperature is None: args.temperature = target_defaults["temperature"]
+    if args.vad_min_speech_duration is None: args.vad_min_speech_duration = target_defaults["vad_min_speech_duration"]
+    if args.vad_speech_pad is None: args.vad_speech_pad = target_defaults["vad_speech_pad"]
+
+    # --- End VAD Presets Logic ---
     
     # Infer format from output filename if --output is specified
     if args.output:
@@ -1064,7 +1226,15 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info, skip_t
                 device=args.device,
                 language=args.language,
                 task=whisper_task,
-                verbose=not args.quiet
+                verbose=not args.quiet,
+                vad_min_silence_duration_ms=args.vad_min_silence,
+                vad_threshold=args.vad_threshold,
+                condition_on_previous_text=args.condition_on_previous_text,
+                no_speech_threshold=args.no_speech_threshold,
+                log_prob_threshold=args.logprob_threshold,
+                temperature=args.temperature,
+                vad_min_speech_duration_ms=args.vad_min_speech_duration,
+                vad_speech_pad_ms=args.vad_speech_pad
             )
         except Exception as e:
             print(f"Transcription failed: {e}")
@@ -1296,7 +1466,15 @@ def run_whisper_benchmark(input_path, audio_path, args, system_info, cpu_info, p
                 model_size=model,
                 device=args.device,
                 language=args.language,
-                verbose=not args.quiet
+                verbose=not args.quiet,
+                vad_min_silence_duration_ms=args.vad_min_silence,
+                vad_threshold=args.vad_threshold,
+                condition_on_previous_text=args.condition_on_previous_text,
+                no_speech_threshold=args.no_speech_threshold,
+                logprob_threshold=args.logprob_threshold,
+                temperature=args.temperature,
+                vad_min_speech_duration_ms=args.vad_min_speech_duration,
+                vad_speech_pad_ms=args.vad_speech_pad
             )
             
             if segments:

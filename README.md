@@ -208,7 +208,40 @@ python auto_subtitles.py sample-video.mp4 --device cpu
 # Translate any language to English subtitles
 python auto_subtitles.py foreign-video.mkv --translate
 python auto_subtitles.py japanese-anime.mkv --translate --model large-v3
+
+# Anti-Hallucination Tuning (Critical for noisy audio recordings)
+# Use these flags to stop the model from transcribing noise or getting stuck in loops.
+# VAD: Voice Activity Detection
+# - vad-min-silence: 500ms (0.5s) to ignore short noises
+# - vad-threshold: 0.7 to strictly require speech
+# - no-condition-on-previous-text: PREVENTS hallucination loops (crucial)
+# - no-speech-threshold: 0.4 to drop more "noise" segments
+# - logprob-threshold: -0.8 to drop unsure guesses
+# - vad-min-speech-duration: 500ms to ignore short coughs/scratches
+# - vad-speech-pad: 100ms to stop grabbing nearby noise
+python auto_subtitles.py video.mkv \
+  --vad-min-silence 500 \
+  --vad-threshold 0.7 \
+  --no-condition-on-previous-text \
+  --no-speech-threshold 0.4 \
+  --logprob-threshold -0.8 \
+  --vad-min-speech-duration 500 \
+  --logprob-threshold -0.8 \
+  --vad-min-speech-duration 500 \
+  --vad-speech-pad 100
 ```
+### Easy VAD Presets
+Instead of typing all the VAD flags manually, you can use the built-in presets:
+
+```bash
+# Preset 1: Noisy (Strict)
+# Equivalent to the command above
+python auto_subtitles.py video.mkv --vad-set-1
+
+# Preset 2: Sensitive (Quiet/Faint Speech)
+python auto_subtitles.py video.mkv --vad-set-2
+```
+
 
 ### Translation Mode
 
@@ -295,6 +328,16 @@ python auto_subtitles.py sample-video.mp4 --format json
 | `--fps` | Frames per second for SUB format. (default: auto-detected, or 25.0) |
 | `-q, --quiet` | Suppress console output of generated subtitles (default: `False`) |
 | `--list-all-supported-languages` | List all 68 supported language codes |
+| `--vad-min-silence` | VAD (Voice Activity Detection):  Minimum silence duration (ms) to split segments (default: `2000`). Increase to ignore short noises. |
+| `--vad-threshold` | VAD (Voice Activity Detection): Speech probability threshold (0.0-1.0) (default: `0.5`). Increase to require clearer speech. |
+| `--no-condition-on-previous-text` | Disable using previous segment as context. Prevents hallucination loops, makes segments independent. |
+| `--no-speech-threshold` | Threshold to skip silent segments (default: `0.6`). Increase to be stricter about what counts as speech. |
+| `--logprob-threshold` | Threshold to skip low-confidence segments (default: `-1.0`). Increase (e.g. `-0.5`) to strictly filter "guesses". |
+| `--temperature` | Sampling temperature (default: `0.0`). `0.0` = deterministic (best). Higher values (`0.2`-`1.0`) = more creative/random (riskier). |
+| `--vad-min-speech-duration` | VAD (Voice Activity Detection): Minimum duration of speech (ms) to keep (default: `250`). Increase (e.g. `500`) to ignore short noise bursts. |
+| `--vad-speech-pad` | VAD (Voice Activity Detection): Padding (ms) to add to each side of speech (default: `400`). Reduce (e.g. `50`) to stop merging noise with speech. |
+| `--vad-set-1` | **Noisy Audio Preset**. Strict values to filter background noise: `vad_threshold=0.7` (Ignore ambiguous noise), `vad_min_silence=500` (Split frequently), `vad_min_speech_duration=500` (Ignore short bursts), `vad_speech_pad=100` (Reduce noise overlap), `no_condition_on_previous_text` (Prevent loops), `no_speech_threshold=0.4` (Drop silence), `logprob_threshold=-0.8` (Drop guesses). |
+| `--vad-set-2` | **Sensitive / Quiet Audio Preset**. Gentle values to catch faint speech: `vad_threshold=0.35` (Catch whispers), `vad_min_speech_duration=200` (Keep short words), `vad_speech_pad=500` (Add context), `vad_min_silence=1000` (Standard splits). |
 
 ### Multi-Language Translation
 
