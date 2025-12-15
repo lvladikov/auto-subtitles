@@ -517,6 +517,12 @@ python auto_subtitles.py video.mp4 --model small --device cpu
 - Specify the language explicitly with `--language`
 - Check if audio quality in the source video is good
 
+### Hallucinations / Noise / Timestamps drift
+If the model hallucinates or includes noise:
+*   Use **VAD Presets**: `--vad-set-1` (Noisy) or `--vad-set-2` (Quiet).
+*   Tune manually: `--vad-min-speech-duration`, `--vad-threshold`, `--no-condition-on-previous-text`.
+*   See [Anti-Hallucination Tuning](#anti-hallucination-tuning-critical-for-noisy-audio-recordings) for details.
+
 ### Slow processing
 - Use a smaller model (`tiny` or `base`)
 - Run `--benchmark` to find the sweet spot for your hardware
