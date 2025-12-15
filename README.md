@@ -276,19 +276,19 @@ python auto_subtitles.py sample-video.mp4 --format json
 
 | Option | Description |
 |--------|-------------|
-| `-o, --output` | Output file path |
-| `-m, --model` | [Whisper](#dependencies) model size: `tiny`, `base`, `small`, `medium`, `large-v3` |
-| `-l, --language` | Language code (e.g., `en`, `es`, `fr`) |
-| `-d, --device` | Processing device: `auto`, `cpu`, `cuda` |
+| `-o, --output` | Output file path (default: same filename as input with output extension) |
+| `-m, --model` | [Whisper](#dependencies) model size: `tiny`, `base`, `small`, `medium`, `large-v3` (default: `medium`) |
+| `-l, --language` | Language code (e.g., `en`, `es`, `fr`) (default: auto-detected) |
+| `-d, --device` | Processing device: `auto`, `cpu`, `cuda` (default: `auto`) |
 | `-b, --benchmark` | Run full benchmark: test all Whisper (transcription) and NLLB (translation) models |
 | `--benchmark-transcribe-only` | Run benchmark: test all Whisper (transcription) models only |
 | `-t, --translate` | Translate to English using [Whisper](#dependencies) |
 | `--translate-to` | Translate to target language(s) using [NLLB-200](#dependencies) (e.g., `fr`, `en,fr,ja`) |
 | `--translate-via-english-to` | Translate via English using [Whisper's](#dependencies) internal translation, then [NLLB-200](#dependencies) for target (e.g., `fr`) |
-| `--translation-model` | [NLLB-200](#dependencies) model size: `small` (default), `medium`, `large` |
-| `-f, --format` | Output format: `srt`, `vtt`, `ass`, `sub`, `txt`, `json` |
+| `--translation-model` | [NLLB-200](#dependencies) model size: `small`, `medium`, `large` (default: `small`) |
+| `-f, --format` | Output format: `srt`, `vtt`, `ass`, `sub`, `txt`, `json` (default: `srt`) |
 | `--fps` | Frames per second for SUB format. (default: auto-detected, or 25.0) |
-| `-q, --quiet` | Suppress console output of generated subtitles |
+| `-q, --quiet` | Suppress console output of generated subtitles (default: `False`) |
 | `--list-all-supported-languages` | List all 68 supported language codes |
 
 ### Multi-Language Translation
