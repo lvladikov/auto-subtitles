@@ -119,8 +119,7 @@ Run `--list-all-supported-languages` to see all 68+ supported language codes.
 
 ## Prerequisites
 
-1. **Python 3.12** (recommended)
-1.  **Python 3.10+** (tested on 3.10 and 3.11)
+1. **Python 3.12** (recommended) or **Python 3.10+** (tested on 3.10 and 3.11)
 2.  **FFmpeg** must be installed and in your system PATH.
     -   **macOS**: `brew install ffmpeg`
     -   **Ubuntu/Debian**: `sudo apt install ffmpeg`
