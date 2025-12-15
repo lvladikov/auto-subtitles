@@ -500,6 +500,8 @@ This tool is provided for **personal use only**. The project owner and contribut
 
 Additionally, please be aware that transcription and translation are performed by probabilistic AI models. While often highly accurate, the results are **not guaranteed to be perfect** and may contain inaccuracies, omissions, or hallucinations. Manual review and editing of the generated subtitles is recommended, especially for critical applications.
 
+Project code was written with the help of [Antigravity](https://antigravity.google/) under human (developer) initiative, guidance, and improvements over many iterations (even before it was first published on GitHub).
+
 ## License
 
 MIT License
