@@ -243,11 +243,64 @@ def extract_audio(video_path: str, audio_path: str) -> bool:
         return True
     except subprocess.CalledProcessError as e:
         print(f"FFmpeg failed to extract audio: {e.stderr.decode()}")
-
         return False
     except Exception as e:
         print(f"Error extracting audio: {e}")
         return False
+
+
+def parse_timestamp(timestamp_str: str) -> float:
+    """Convert SRT timestamp (00:00:00,000) to seconds (float)."""
+    try:
+        # format: HH:MM:SS,mmm
+        hours, minutes, seconds_milliseconds = timestamp_str.split(':')
+        seconds, milliseconds = seconds_milliseconds.split(',')
+        return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000.0
+    except Exception:
+        return 0.0
+
+
+def parse_srt(file_path: Path) -> list:
+    """
+    Parse an SRT file into a list of segment dictionaries.
+    Returns: [{'start': float, 'end': float, 'text': str}, ...]
+    """
+    try:
+        content = file_path.read_text(encoding='utf-8')
+    except UnicodeDecodeError:
+        try:
+            content = file_path.read_text(encoding='latin-1')
+        except Exception:
+            print(f"Error reading SRT file: {file_path}")
+            return None
+        
+    segments = []
+    blocks = content.strip().split('\n\n')
+    
+    for block in blocks:
+        lines = block.split('\n')
+        if len(lines) < 3:
+            continue
+            
+        # Line 1: Index (skip)
+        # Line 2: Timestamp
+        times = lines[1].split(' --> ')
+        if len(times) != 2:
+            continue
+            
+        start = parse_timestamp(times[0].strip())
+        end = parse_timestamp(times[1].strip())
+        
+        # Line 3+: Text
+        text = '\n'.join(lines[2:])
+        
+        segments.append({
+            "start": start,
+            "end": end,
+            "text": text
+        })
+        
+    return segments
 
 
 def get_potential_output_paths(input_path: Path, args) -> list:
@@ -259,9 +312,26 @@ def get_potential_output_paths(input_path: Path, args) -> list:
     # Determine extension
     format_ext = f".{args.format}"
     
-    # Case 1: Explicit output path (single file)
+    # Case 1: Explicit output path (single file or base for multiple)
     if args.output:
-        return [Path(args.output)]
+        # If explicitly translating to multiple languages, we treat args.output as a base pattern?
+        # Or just return [args.output] if single target?
+        
+        target_langs = []
+        if args.translate_to:
+            target_langs = args.translate_to.split(",")
+        elif args.translate_via_english_to:
+            target_langs = args.translate_via_english_to.split(",")
+
+        if len(target_langs) > 1:
+             paths = []
+             base = Path(args.output)
+             for lang in target_langs:
+                 lang = lang.strip()
+                 paths.append(base.parent / f"{base.stem}.{lang}{format_ext}")
+             return paths
+        else:
+            return [Path(args.output)]
     
     # Case 2: Multi-language translation (--translate-to or --translate-via-english-to)
     target_langs = []
@@ -286,10 +356,6 @@ def get_potential_output_paths(input_path: Path, args) -> list:
     if args.translate:
         # Default suffix for --translate is .en
         paths.append(input_path.with_suffix(f".en{format_ext}"))
-        # Does --translate ALSO save the original language transcription?
-        # If task="translate", Whisper translates directly. 
-        # If so, it produces ONLY the translated text (English).
-        # So we do NOT add the base path here.
         return paths
 
     # Case 4: Default Transcription
@@ -491,8 +557,13 @@ def generate_output(segments: list, output_path: str, format: str = "srt",
         output_path: Path for the output file
         format: Output format (srt, vtt, ass, sub, txt, json)
         fps: Frames per second (only used for SUB format)
+        fps: Frames per second (only used for SUB format)
         max_line_length: Maximum characters per line (for readability)
     """
+    # Ensure parent directory exists
+    if output_path:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
     format_handlers = {
         "srt": generate_srt,
         "vtt": generate_vtt,
@@ -679,7 +750,7 @@ NLLB translation models (--translation-model):
     
     parser.add_argument(
         "-o", "--output",
-        help="Output SRT file path (default: same as input with .srt extension)"
+        help="Output SRT file path (default: same filename as input with output extension)"
     )
     
     parser.add_argument(
@@ -691,8 +762,7 @@ NLLB translation models (--translation-model):
     
     parser.add_argument(
         "-l", "--language",
-        metavar="LANG",
-        help="Language code (e.g., 'en', 'es', 'fr'). Auto-detected if not specified."
+        help="Language code (e.g., 'en', 'es', 'fr'). (default: auto-detected)"
     )
     
     parser.add_argument(
@@ -751,7 +821,6 @@ NLLB translation models (--translation-model):
     parser.add_argument(
         "--fps",
         type=float,
-        default=None,
         help="Frames per second for SUB format. Ignored for other formats. (default: auto-detect from video, or 25.0)"
     )
     
@@ -764,7 +833,7 @@ NLLB translation models (--translation-model):
     parser.add_argument(
         "-q", "--quiet",
         action="store_true",
-        help="Suppress console output of generated subtitles"
+        help="Suppress console output of generated subtitles (default: False)"
     )
 
     args = parser.parse_args()
@@ -810,18 +879,69 @@ NLLB translation models (--translation-model):
     # Check for existing subtitles
     if not args.benchmark and not args.benchmark_transcribe_only:
         print(f"Input file: {input_path}")
-    
-        # Check for EXISTING EXTERNAL subtitle files first
+        
+        # 1. Check for BASE TRANSCRIPTION reuse (if translating)
+        # Identify the "base" output path (SRT) that would be used for input
+        format_ext = f".{args.format}"
+        
+        # If translating, the "base" file is typically the straight transcription of the input
+        # regardless of where the output is going (unless we specifically want to reuse a custom file?)
+        # For simplicity, base reuse looks for [input_filename].srt next to input
+        is_translation_task = bool(args.translate_to or args.translate_via_english_to)
+
+        if is_translation_task:
+             base_output_path = input_path.with_suffix(".srt")
+        elif args.output:
+             base_output_path = Path(args.output)
+        else:
+             base_output_path = input_path.with_suffix(format_ext)
+             
+        skip_transcription = False
+        reuse_segments = None
+        
+        # If we are strictly translating (using --translate-to etc), we might want to reuse the base file
+        is_translation_task = bool(args.translate_to or args.translate_via_english_to)
+        
+        if is_translation_task and base_output_path.exists() and base_output_path.suffix == '.srt':
+            print(f"\n⚠️  Base transcription found: {base_output_path.name}")
+            print(f"   You can reuse this file to skip the transcription step.")
+            reuse_response = input(f"   Reuse this file for translation? (y/N): ").lower().strip()
+            
+            if reuse_response == 'y':
+                print(f"   Parsing {base_output_path.name}...")
+                reuse_segments = parse_srt(base_output_path)
+                if reuse_segments:
+                    print(f"   ✅ Loaded {len(reuse_segments)} segments. Transcription will be skipped.")
+                    skip_transcription = True
+                else:
+                    print(f"   ❌ Failed to parse SRT. Will regenerate.")
+        
+        
+        # 2. Check for OVERWRITE risk (Target files)
+        # We need to calculate what files we are about to generate
         potential_outputs = get_potential_output_paths(input_path, args)
+        
+        # Filter out the base path IF we are skipping transcription AND it was the base path
+        # (Actually, even if skipping, we might not be *writing* to the base path if it's just input?
+        #  If we are translating, we usually generate target files. The base file is safe unless we also re-save it?
+        #  The current logic typically runs transcribe_audio first which returns segments but doesn't necessarily strict-save if we bypass it?
+        #  Wait, transcribe_audio usually DOES save. We need to handle 'skip_transcription' in the execution flow.)
+        
         existing_files = [p for p in potential_outputs if p.exists()]
         
+        # If we are reusing the base file, we shouldn't warn about overwriting IT (since we won't touches it if we skip transcribing)
+        # But if we ARE overwriting it (re-transcribing), we should warn.
+        
+        if skip_transcription and base_output_path in existing_files:
+             existing_files.remove(base_output_path)
+             
         if existing_files:
             print(f"\n⚠️  External subtitle file(s) found:")
             for p in existing_files:
                 print(f"   - {p.name}")
             
             print(f"\n   DANGER: Generating new subtitles will OVERWRITE these files.")
-            response = input(f"   Do you want to use the existing file(s) instead? (y/n): ").lower().strip()
+            response = input(f"   Do you want to use the existing file(s) instead? (y/N): ").lower().strip()
             
             if response == 'y':
                 print(f"✅ Using existing files. Exiting.")
@@ -832,7 +952,7 @@ NLLB translation models (--translation-model):
         # Check for INTERNAL subtitle streams
         if check_existing_subtitles(str(input_path)):
             print(f"\n⚠️  Subtitle stream detected in the input file!")
-            response = input("   Do you want to extract existing subtitles instead of generating new ones? (y/n): ").strip().lower()
+            response = input("   Do you want to extract existing subtitles instead of generating new ones? (y/N): ").strip().lower()
             
             if response == 'y':
                 # Determine output path
@@ -867,11 +987,12 @@ NLLB translation models (--translation-model):
             # Whisper-only benchmark mode
             run_whisper_benchmark(input_path, audio_path, args, system_info, cpu_info)
         else:
+
             # Normal mode: run single model
-            run_single_model(input_path, audio_path, args, system_info, cpu_info)
+            run_single_model(input_path, audio_path, args, system_info, cpu_info, skip_transcription, reuse_segments)
 
 
-def run_single_model(input_path, audio_path, args, system_info, cpu_info):
+def run_single_model(input_path, audio_path, args, system_info, cpu_info, skip_transcription=False, reuse_segments=None):
     """Run transcription with a single model."""
     format_ext = f".{args.format}"
     
@@ -882,26 +1003,47 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info):
     else:
         whisper_task = "transcribe"
     
-    # Transcribe/translate audio with Whisper
-    try:
-        segments, audio_duration, transcription_time = transcribe_audio(
-            audio_path,
-            model_size=args.model,
-            device=args.device,
-            language=args.language,
-            task=whisper_task,
-            verbose=not args.quiet
-        )
-    except Exception as e:
-        print(f"Transcription failed: {e}")
-        sys.exit(1)
+    segments = []
+    audio_duration = 0
+    transcription_time = 0
+    detected_lang = None
+
+    # Transcribe audio (if not skipping)
+    if skip_transcription and reuse_segments:
+        print(f"\n🚀 Skipping transcription (using {len(reuse_segments)} segments from base file)...")
+        segments = reuse_segments
+        detected_lang = args.language if args.language else "auto"
+        # We assume base file matches what we need
+        
+    else:
+        # Transcribe/translate audio with Whisper
+        try:
+            segments, audio_duration, transcription_time = transcribe_audio(
+                audio_path,
+                model_size=args.model,
+                device=args.device,
+                language=args.language,
+                task=whisper_task,
+                verbose=not args.quiet
+            )
+        except Exception as e:
+            print(f"Transcription failed: {e}")
+            sys.exit(1)
+            
+        if segments:
+             # Check logic for detected_lang (which isn't returned explicitly by transcribe_audio yet)
+             if args.translate:
+                 detected_lang = "en"
+             elif not detected_lang:
+                 detected_lang = args.language or "en" # Fallback
     
     if not segments:
         print("No speech detected in the file.")
         sys.exit(0)
     
-    # Store detected source language for NLLB
-    detected_lang = args.language or "en"  # Default to English if not detected
+    # Store detected source language for NLLB (if not already set)
+    if not detected_lang:
+        detected_lang = args.language or "en"
     
     # Determine FPS if format is SUB
     fps_val = 25.0
@@ -913,6 +1055,8 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info):
             fps_val = detect_fps(str(input_path))
             print(f"   Detected/Default FPS: {fps_val:.3f}")
 
+
+    
     # Handle different translation scenarios
     outputs_generated = []
     
@@ -942,7 +1086,16 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info):
             translated_segments = translate_segments(segments, detected_lang, target_lang, args.translation_model, verbose=not args.quiet)
             
             # Generate output
-            output_path = input_path.with_suffix(f".{target_lang}{format_ext}")
+            if args.output and len(target_langs) == 1:
+                # Exact match for single target
+                output_path = Path(args.output)
+            elif args.output:
+                # Multiple targets with -o specified -> use as base pattern
+                base = Path(args.output)
+                output_path = base.parent / f"{base.stem}.{target_lang}{format_ext}"
+            else:
+                output_path = input_path.with_suffix(f".{target_lang}{format_ext}")
+                
             generate_output(translated_segments, str(output_path), format=args.format, fps=fps_val)
             outputs_generated.append((output_path, target_lang))
     
@@ -963,7 +1116,15 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info):
                 
                 # Translate from English using NLLB
                 translated_segments = translate_segments(segments, "en", target_lang, args.translation_model, verbose=not args.quiet)
-                output_path = input_path.with_suffix(f".{target_lang}{format_ext}")
+                
+                if args.output and len(target_langs) == 1:
+                     output_path = Path(args.output)
+                elif args.output:
+                     base = Path(args.output)
+                     output_path = base.parent / f"{base.stem}.{target_lang}{format_ext}"
+                else:
+                     output_path = input_path.with_suffix(f".{target_lang}{format_ext}")
+
                 generate_output(translated_segments, str(output_path), format=args.format, fps=args.fps)
             
             outputs_generated.append((output_path, target_lang))
