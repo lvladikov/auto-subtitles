@@ -17,6 +17,12 @@ Generate subtitle/transcript files from video or audio files using local AI spee
   - Intel/AMD CPU (CPU with int8)
 - 💾 **Smart extraction** - Detects if file already has subtitles and offers to extract them instead of generating new ones
 
+## Infographic
+
+_Generated with NotebookLM based on the project code._
+
+![Infographic](screenshots/infographic.png)
+
 ## Supported Formats
 
 **Input** - Any format that FFmpeg can decode:
