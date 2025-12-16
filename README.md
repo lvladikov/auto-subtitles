@@ -142,6 +142,10 @@ cd auto-subtitles
    # macOS (Homebrew):
    /opt/homebrew/bin/python3.12 -m venv venv
 
+   # or
+   
+   python3.12 -m venv venv
+
    # Linux:
    python3.12 -m venv venv
 
