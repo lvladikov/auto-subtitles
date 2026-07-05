@@ -133,7 +133,7 @@ def translate_segments(segments: list, source_lang: str, target_lang: str,
         List of segments with translated text
     """
     try:
-        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
     except ImportError:
         print("Error: transformers is not installed.")
         print("Please install it with: pip install transformers sentencepiece")
@@ -165,23 +165,25 @@ def translate_segments(segments: list, source_lang: str, target_lang: str,
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    
-    translator = pipeline(
-        "translation",
-        model=model,
-        tokenizer=tokenizer,
-        src_lang=src_nllb,
-        tgt_lang=tgt_nllb,
-        max_length=512
-    )
-    
+
+    # Set source language on the tokenizer and resolve the target language token.
+    # (transformers 5.x removed the "translation" pipeline, so we drive the
+    #  NLLB seq2seq model directly via model.generate.)
+    tokenizer.src_lang = src_nllb
+    forced_bos_token_id = tokenizer.convert_tokens_to_ids(tgt_nllb)
+
     print(f"Translating {len(segments)} segments...")
     
     translated_segments = []
     for i, segment in enumerate(segments):
         # Translate text
-        result = translator(segment["text"])
-        translated_text = result[0]["translation_text"]
+        inputs = tokenizer(segment["text"], return_tensors="pt")
+        generated = model.generate(
+            **inputs,
+            forced_bos_token_id=forced_bos_token_id,
+            max_length=512,
+        )
+        translated_text = tokenizer.batch_decode(generated, skip_special_tokens=True)[0]
         
         translated_segments.append({
             "start": segment["start"],
