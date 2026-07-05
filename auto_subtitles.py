@@ -133,7 +133,7 @@ def translate_segments(segments: list, source_lang: str, target_lang: str,
         List of segments with translated text
     """
     try:
-        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
     except ImportError:
         print("Error: transformers is not installed.")
         print("Please install it with: pip install transformers sentencepiece")
@@ -165,23 +165,25 @@ def translate_segments(segments: list, source_lang: str, target_lang: str,
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    
-    translator = pipeline(
-        "translation",
-        model=model,
-        tokenizer=tokenizer,
-        src_lang=src_nllb,
-        tgt_lang=tgt_nllb,
-        max_length=512
-    )
-    
+
+    # Set source language on the tokenizer and resolve the target language token.
+    # (transformers 5.x removed the "translation" pipeline, so we drive the
+    #  NLLB seq2seq model directly via model.generate.)
+    tokenizer.src_lang = src_nllb
+    forced_bos_token_id = tokenizer.convert_tokens_to_ids(tgt_nllb)
+
     print(f"Translating {len(segments)} segments...")
     
     translated_segments = []
     for i, segment in enumerate(segments):
         # Translate text
-        result = translator(segment["text"])
-        translated_text = result[0]["translation_text"]
+        inputs = tokenizer(segment["text"], return_tensors="pt")
+        generated = model.generate(
+            **inputs,
+            forced_bos_token_id=forced_bos_token_id,
+            max_length=512,
+        )
+        translated_text = tokenizer.batch_decode(generated, skip_special_tokens=True)[0]
         
         translated_segments.append({
             "start": segment["start"],
@@ -500,7 +502,8 @@ def transcribe_audio(audio_path: str, model_size: str = "medium",
         vad_speech_pad_ms: Speech padding (ms) for VAD (default: 400)
     
     Returns:
-        Tuple of (transcript segments list, audio duration in seconds, transcription time in seconds)
+        Tuple of (transcript segments list, audio duration in seconds, transcription time in seconds,
+        detected language code)
     """
     import platform
     
@@ -600,7 +603,7 @@ def transcribe_audio(audio_path: str, model_size: str = "medium",
     task_name = "Translation" if task == "translate" else "Transcription"
     if verbose:
         print(f"\n{task_name} complete. {len(transcript)} segments found.")
-    return transcript, audio_duration, transcription_time
+    return transcript, audio_duration, transcription_time, info.language
 
 
 def generate_output(segments: list, output_path: str, format: str = "srt", 
@@ -1220,7 +1223,7 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info, skip_t
     else:
         # Transcribe/translate audio with Whisper
         try:
-            segments, audio_duration, transcription_time = transcribe_audio(
+            segments, audio_duration, transcription_time, whisper_detected_lang = transcribe_audio(
                 audio_path,
                 model_size=args.model,
                 device=args.device,
@@ -1239,13 +1242,14 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info, skip_t
         except Exception as e:
             print(f"Transcription failed: {e}")
             sys.exit(1)
-            
+
         if segments:
-             # Check logic for detected_lang (which isn't returned explicitly by transcribe_audio yet)
              if args.translate:
                  detected_lang = "en"
-             elif not detected_lang:
-                 detected_lang = args.language or "en" # Fallback
+             elif args.language:
+                 detected_lang = args.language
+             else:
+                 detected_lang = whisper_detected_lang
     
     if not segments:
         print("No speech detected in the file.")
@@ -1277,9 +1281,11 @@ def run_single_model(input_path, audio_path, args, system_info, cpu_info, skip_t
         else:
             if args.translate:
                 output_path = input_path.with_suffix(f".en{format_ext}")
+            elif detected_lang and detected_lang != "en":
+                output_path = input_path.with_suffix(f".{detected_lang}{format_ext}")
             else:
                 output_path = input_path.with_suffix(format_ext)
-        
+
         generate_output(segments, str(output_path), format=args.format, fps=fps_val)
         outputs_generated.append((output_path, "en" if args.translate else detected_lang))
     
@@ -1461,7 +1467,7 @@ def run_whisper_benchmark(input_path, audio_path, args, system_info, cpu_info, p
         output_path = input_path.with_suffix(f".{model}.srt")
         
         try:
-            segments, audio_duration, transcription_time = transcribe_audio(
+            segments, audio_duration, transcription_time, _ = transcribe_audio(
                 audio_path,
                 model_size=model,
                 device=args.device,
